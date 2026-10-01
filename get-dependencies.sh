@@ -6,11 +6,13 @@ ARCH=$(uname -m)
 
 echo "Installing package dependencies..."
 echo "---------------------------------------------------------------"
-# pacman -Syu --noconfirm PACKAGESHERE
+# pacman -S --needed --noconfirm PACKAGESHERE
 
 echo "Installing debloated packages..."
 echo "---------------------------------------------------------------"
-get-debloated-pkgs --add-common --prefer-nano
+if [ -n "${CI:-}" ] || [ "${USE_DEBLOAT:-0}" = "1" ]; then
+	get-debloated-pkgs --add-common --prefer-nano
+fi
 
 # Comment this out if you need an AUR package
 #make-aur-package PACKAGENAME
