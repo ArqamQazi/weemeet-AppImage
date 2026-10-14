@@ -64,30 +64,18 @@ if [ -d /opt/wemeet/bin ]; then
 	cp -r /opt/wemeet/bin/* ./AppDir/bin/
 fi
 
-# Pre-stage runtime hook to configure styling, Wayland/X11 quirks, and preloads
-cat << 'EOF' > ./AppDir/bin/09-wemeet-env.hook
-# Wemeet runtime environment setup
-export QT_AUTO_SCREEN_SCALE_FACTOR=1
-export QT_STYLE_OVERRIDE=fusion
-export IBUS_USE_PORTAL=1
-
-# Allow LD_PRELOAD inside sharun
-export SHARUN_ALLOW_LD_PRELOAD=1
-
-# Force X11 / XWayland mode (Wemeet has known crashes under native Wayland)
-export QT_QPA_PLATFORM=xcb
-export XDG_SESSION_TYPE=x11
+# Runtime environment for wemeet, read by sharun from .env
+cat << 'EOF' >> ./AppDir/.env
+QT_AUTO_SCREEN_SCALE_FACTOR=1
+QT_STYLE_OVERRIDE=fusion
+IBUS_USE_PORTAL=1
+QT_QPA_PLATFORM=xcb
+XDG_SESSION_TYPE=x11
+WEMEET_XWAYLAND=1
 unset WAYLAND_DISPLAY
-export WEMEET_XWAYLAND=1
-
-# Preload wemeet wrapper shim if present
-if [ -f "$APPDIR/lib/wemeet/libwemeetwrap.so" ]; then
-	export LD_PRELOAD="${LD_PRELOAD:+$LD_PRELOAD:}$APPDIR/lib/wemeet/libwemeetwrap.so"
-fi
 EOF
-chmod +x ./AppDir/bin/09-wemeet-env.hook
 
-# Preload wrapper shim directly in sharun-preload if built
+# Everything in lib/sharun-preload is preloaded by sharun automatically
 mkdir -p ./AppDir/lib/sharun-preload
 if [ -f /usr/lib/wemeet/libwemeetwrap.so ]; then
 	cp -fv /usr/lib/wemeet/libwemeetwrap.so ./AppDir/lib/sharun-preload/
@@ -108,6 +96,15 @@ quick-sharun \
 	/usr/lib/libyuv.so* \
 	/usr/lib/libssl.so* \
 	/usr/lib/libcrypto.so*
+
+# Chromium spawns QtWebEngineProcess with LD_LIBRARY_PATH/LD_PRELOAD stripped,
+# so it cannot use sharun's pathmap and must locate wemeet's private Qt and
+# Qt WebEngine data through the AppDir itself
+patchelf --set-rpath '$ORIGIN/../lib/wemeet:$ORIGIN/../lib' ./AppDir/bin/QtWebEngineProcess
+cat << 'EOF' >> ./AppDir/bin/qt.conf
+Data = $(APPDIR)/lib/wemeet
+Translations = $(APPDIR)/lib/wemeet/translations
+EOF
 
 # Ensure .desktop Exec matches MAIN_BIN
 sed -i 's|^Exec=wemeet.*|Exec=wemeetapp %u|g' ./AppDir/wemeetapp.desktop 2>/dev/null || :
