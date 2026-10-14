@@ -109,18 +109,8 @@ quick-sharun \
 	/usr/lib/libssl.so* \
 	/usr/lib/libcrypto.so*
 
-# Ensure configs and modules are accessible relative to shared/bin as well
-mkdir -p ./AppDir/shared/bin
-for item in modules qt.conf xcast.conf raw; do
-	if [ -e "./AppDir/bin/$item" ] && [ ! -e "./AppDir/shared/bin/$item" ]; then
-		ln -sf "../../bin/$item" "./AppDir/shared/bin/$item"
-	fi
-done
-
-# Ensure binary symlinks and desktop Exec match MAIN_BIN
-ln -sf wemeetapp ./AppDir/bin/wemeet 2>/dev/null || :
-ln -sf wemeetapp ./AppDir/shared/bin/wemeet 2>/dev/null || :
-sed -i 's|^Exec=wemeet|Exec=wemeetapp|g' ./AppDir/wemeetapp.desktop 2>/dev/null || :
+# Ensure .desktop Exec matches MAIN_BIN
+sed -i 's|^Exec=wemeet.*|Exec=wemeetapp %u|g' ./AppDir/wemeetapp.desktop 2>/dev/null || :
 
 # Turn AppDir into AppImage
 quick-sharun --make-appimage
