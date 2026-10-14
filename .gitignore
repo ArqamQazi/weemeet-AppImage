@@ -1,0 +1,6 @@
+dist/
+AppDir/
+*.AppImage
+*.zsync
+*.deb
+wemeet-bin/

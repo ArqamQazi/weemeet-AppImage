@@ -3,15 +3,32 @@
 set -eu
 
 ARCH=$(uname -m)
-VERSION=$(pacman -Q PACKAGENAME 2>/dev/null | awk '{print $2; exit}') # example command to get version of application here
+VERSION=$(pacman -Q wemeet-bin 2>/dev/null | awk '{print $2; exit}')
+if [ -z "${VERSION:-}" ] && [ -f ~/version ]; then
+	VERSION=$(cat ~/version)
+fi
+VERSION="${VERSION:-3.26.10.401}"
 export ARCH VERSION
 export OUTPATH=./dist
-export ICON=PATH_OR_URL_TO_ICON
-export DESKTOP=PATH_OR_URL_TO_DESKTOP_ENTRY
+
+# Ignore inherited APPDIR from parent AppImage mounts if any
+case "${APPDIR:-}" in
+	/tmp/.mount_*) unset APPDIR ;;
+esac
+
+export DESKTOP=/usr/share/applications/wemeetapp.desktop
+if [ -f /usr/share/icons/hicolor/scalable/apps/wemeet.svg ]; then
+	export ICON=/usr/share/icons/hicolor/scalable/apps/wemeet.svg
+elif [ -f /usr/share/icons/hicolor/256x256/apps/wemeetapp.png ]; then
+	export ICON=/usr/share/icons/hicolor/256x256/apps/wemeetapp.png
+else
+	export ICON=/usr/share/icons/hicolor/scalable/apps/wemeet.svg
+fi
+
+export ADD_HOOKS="self-updater.hook:fix-namespaces.hook"
 
 if [ -n "${GITHUB_REPOSITORY:-}" ]; then
 	export UPINFO="gh-releases-zsync|${GITHUB_REPOSITORY%/*}|${GITHUB_REPOSITORY#*/}|latest|*$ARCH.AppImage.zsync"
-	export ADD_HOOKS="${ADD_HOOKS:-self-updater.hook}"
 fi
 
 if [ -z "${CI:-}" ]; then
@@ -20,16 +37,70 @@ if [ -z "${CI:-}" ]; then
 	export STRACE_TIME="${STRACE_TIME:-1}"
 fi
 
-# Deploy dependencies
-quick-sharun /PATH/TO/BINARY_AND_LIBRARIES_HERE
+export MAIN_BIN=wemeetapp
+export STARTUPWMCLASS=wemeetapp
+export DEPLOY_PIPEWIRE=1
+export DEPLOY_OPENGL=1
+export DEPLOY_VULKAN=1
 
-# Additional changes can be done in between here
+# Wemeet bundles its own private Qt and QtWebEngine (like Viber-AppImage-Enhanced)
+export DEPLOY_QT=0
+export DEPLOY_QML=0
+export DEPLOY_QT_WEB_ENGINE=0
+
+# Allow ldd to resolve wemeet's private libraries during deployment
+export LD_LIBRARY_PATH="/usr/lib/wemeet:${LD_LIBRARY_PATH:-}"
+
+# Map hardcoded wemeet library directory
+export PATH_MAPPING='
+	/usr/lib/wemeet:${SHARUN_DIR}/lib/wemeet
+'
+
+# Pre-stage wemeet binary, modules, and configs before deployment (similar to Viber & Chrome)
+mkdir -p ./AppDir/bin
+if [ -d /opt/wemeet/bin ]; then
+	cp -r /opt/wemeet/bin/* ./AppDir/bin/
+fi
+
+# Pre-stage runtime hook to configure styling, Wayland/X11 quirks, and preloads
+cat << 'EOF' > ./AppDir/bin/09-wemeet-env.hook
+# Wemeet runtime environment setup
+export QT_AUTO_SCREEN_SCALE_FACTOR=1
+export QT_STYLE_OVERRIDE=fusion
+export IBUS_USE_PORTAL=1
+
+# Force X11 / XWayland mode (Wemeet has known crashes under native Wayland)
+export QT_QPA_PLATFORM=xcb
+export XDG_SESSION_TYPE=x11
+unset WAYLAND_DISPLAY
+export WEMEET_XWAYLAND=1
+
+# Preload wemeet wrapper shim if present
+if [ -f "$APPDIR/lib/wemeet/libwemeetwrap.so" ]; then
+	export LD_PRELOAD="${LD_PRELOAD:+$LD_PRELOAD:}$APPDIR/lib/wemeet/libwemeetwrap.so"
+fi
+EOF
+chmod +x ./AppDir/bin/09-wemeet-env.hook
+
+# Deploy dependencies and libraries (passing /usr/lib/wemeet directory directly to quick-sharun)
+quick-sharun \
+	./AppDir/bin/wemeetapp \
+	./AppDir/bin/modules/*.so \
+	/usr/lib/wemeet \
+	/usr/lib/libpulse.so* \
+	/usr/lib/libasound.so* \
+	/usr/lib/libssl.so* \
+	/usr/lib/libcrypto.so* \
+	/usr/lib/libyuv.so* \
+	/usr/lib/qt/plugins/platforms/libqxcb.so
+
+# Ensure .desktop Exec matches MAIN_BIN
+sed -i 's|^Exec=wemeet|Exec=wemeetapp|g' ./AppDir/wemeetapp.desktop 2>/dev/null || :
 
 # Turn AppDir into AppImage
 quick-sharun --make-appimage
 
-# Test the app for 12 seconds, if the test fails due to the app
-# having issues running in the CI use --simple-test instead
+# Test the AppImage
 if [ -n "${CI:-}" ] || [ "${RUN_TEST:-0}" = "1" ]; then
-	quick-sharun --test ./dist/*.AppImage
+	quick-sharun --simple-test ./dist/*.AppImage
 fi

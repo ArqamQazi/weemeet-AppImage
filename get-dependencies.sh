@@ -6,26 +6,36 @@ ARCH=$(uname -m)
 
 echo "Installing package dependencies..."
 echo "---------------------------------------------------------------"
-# pacman -S --needed --noconfirm PACKAGESHERE
+pacman -S --needed --noconfirm \
+	base-devel git wget patchelf \
+	alsa-lib libpulse openssl libxinerama libxcomposite libxdamage libxrandr libyuv
 
 echo "Installing debloated packages..."
 echo "---------------------------------------------------------------"
 if [ -n "${CI:-}" ] || [ "${USE_DEBLOAT:-0}" = "1" ]; then
-	get-debloated-pkgs --add-common --prefer-nano
+	# Don't install system qt5-base, wemeet bundles its own Qt
+	get-debloated-pkgs --add-common --prefer-nano ! qt5-base
 fi
 
-# Comment this out if you need an AUR package
-#make-aur-package PACKAGENAME
+echo "Building and installing wemeet from AUR..."
+echo "---------------------------------------------------------------"
+MAKE_AUR_PKG="https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/refs/heads/main/useful-tools/make-aur-package.sh"
+if ! command -v make-aur-package >/dev/null 2>&1; then
+	wget --retry-connrefused --tries=10 -qO /tmp/make-aur-package "$MAKE_AUR_PKG"
+	chmod +x /tmp/make-aur-package
+	MAKE_AUR_PKG_BIN="/tmp/make-aur-package"
+else
+	MAKE_AUR_PKG_BIN="make-aur-package"
+fi
 
-# If the application needs to be manually built that has to be done down here
+# Clean up any leftover directory before build
+rm -rf ./wemeet-bin
 
-# if you also have to make nightly releases check for DEVEL_RELEASE = 1
-#
-# if [ "${DEVEL_RELEASE-}" = 1 ]; then
-# 	nightly build steps
-# else
-# 	regular build steps
-# fi
+# If a local deb package exists (e.g. to bypass regional/ISP blocks on updatecdn.meeting.qq.com),
+# copy it into the build directory before makepkg runs so makepkg reuses it.
+export PRE_BUILD_CMDS='for f in ../*.deb ../wemeet*.deb ../*TencentMeeting*.deb /tmp/*.deb /tmp/wemeet*.deb /tmp/*TencentMeeting*.deb; do [ -f "$f" ] && echo "Using local deb: $f" && cp -fv "$f" ./wemeet-3.26.10.401-'"$ARCH"'.deb && break; done || true'
 
-# Note that when building manually, you want to output the version of the
-# application to a ~/version file and remove VERSION from make-appimage.sh
+$MAKE_AUR_PKG_BIN wemeet-bin
+
+# Clean up build directory after successful install
+rm -rf ./wemeet-bin
