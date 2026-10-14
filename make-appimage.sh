@@ -91,20 +91,12 @@ fi
 # Note: /usr/lib/wemeet includes Wemeet's bundled Qt plugins (e.g. plugins/platforms/libqxcb.so)
 quick-sharun \
 	./AppDir/bin/wemeetapp \
+	./AppDir/bin/QtWebEngineProcess \
 	$MODULE_LIBS \
 	/usr/lib/wemeet \
 	/usr/lib/libyuv.so* \
 	/usr/lib/libssl.so* \
 	/usr/lib/libcrypto.so*
-
-# Chromium spawns QtWebEngineProcess with LD_LIBRARY_PATH/LD_PRELOAD stripped,
-# so it cannot use sharun's pathmap and must locate wemeet's private Qt and
-# Qt WebEngine data through the AppDir itself
-patchelf --set-rpath '$ORIGIN/../lib/wemeet:$ORIGIN/../lib' ./AppDir/bin/QtWebEngineProcess
-cat << 'EOF' >> ./AppDir/bin/qt.conf
-Data = $(APPDIR)/lib/wemeet
-Translations = $(APPDIR)/lib/wemeet/translations
-EOF
 
 # Ensure .desktop Exec matches MAIN_BIN
 sed -i 's|^Exec=wemeet.*|Exec=wemeetapp %u|g' ./AppDir/wemeetapp.desktop 2>/dev/null || :
